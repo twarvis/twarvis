@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WhatsApp QR Linking</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    #qr-container {
+      margin: 20px auto;
+      width: 300px;
+    }
+    #qr-image {
+      width: 100%;
+      border: 1px solid #ddd;
+      padding: 10px;
+    }
+    #status {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    .connected {
+      background-color: #4CAF50;
+      color: white;
+    }
+    .disconnected {
+      background-color: #f44336;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>WhatsApp Account Linking</h1>
+  <div id="qr-container">
+    <img id="qr-image" src="">
+  </div>
+  <div id="status">Waiting for QR code...</div>
+
+  <script>
+    const socket = io();
+    const qrImage = document.getElementById('qr-image');
+    const statusDiv = document.getElementById('status');
+
+    socket.on('qr', (url) => {
+      qrImage.src = url;
+      statusDiv.textContent = 'Scan this QR code with your WhatsApp mobile app';
+      statusDiv.className = '';
+    });
+
+    socket.on('message', (msg) => {
+      statusDiv.textContent = msg;
+      if (msg.includes('successfully')) {
+        statusDiv.className = 'connected';
+      } else if (msg.includes('ended')) {
+        statusDiv.className = 'disconnected';
+      }
+    });
+  </script>
+</body>
+</html>
