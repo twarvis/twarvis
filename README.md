@@ -50,4 +50,9 @@ A powerful, AI-driven WhatsApp bot for automating messages, managing groups, rec
 1. Clone the repo:
    ```bash
    git clone https://github.com/yourusername/whatsapp-bot.git
-   cd whatsapp-bot
+   cd whatsapp-botmodule.exports = {
+  prefix: '!', // Command prefix
+  adminNumbers: ['1234567890'], // Admin phone numbers
+  autoReply: true, // Enable auto-reply
+  // ... other settings
+}
