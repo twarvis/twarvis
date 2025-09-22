@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pro Photo Editor Advanced</title>
+<style>
+body{margin:0;font-family:"Segoe UI",Roboto,Arial,sans-serif;background:#111;color:#eee;}
+header{text-align:center;padding:15px;font-size:24px;font-weight:bold;background:linear-gradient(90deg,#0072ff,#00c6ff);}
+.editor-container{display:flex;height:85vh;}
+.tools{width:320px;background:#1c1c1c;padding:15px;border-right:1px solid #333;overflow-y:auto;}
+.tools h3{font-size:14px;text-transform:uppercase;color:#aaa;margin:15px 0 5px;}
+.slider-group{margin-bottom:12px;}
+.slider-group label{display:block;font-size:12px;margin-bottom:3px;}
+input[type=range]{width:100%;}
+button{margin:5px 0;padding:5px 10px;width:100%;cursor:pointer;}
+.canvas-area{flex:1;display:flex;justify-content:center;align-items:center;background:#000;position:relative;}
+canvas{max-width:95%;max-height:95%;border-radius:8px;}
+</style>
+</head>
+<body>
+
+<header>Pro Photo Editor Advanced</header>
+
+<div class="editor-container">
+<div class="tools">
+  <h3>File</h3>
+  <input type="file" accept="image/*" id="fileInput">
+  <button id="downloadBtn">Download Photo</button>
+
+  <h3>Skin & Face Tools</h3>
+  <div class="slider-group"><label>Face Smooth</label><input type="range" id="faceSmooth" min="0" max="30" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Blemish Strength</label><input type="range" id="blemish" min="0" max="50" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Pimple / Healing</label><input type="range" id="pimpleRemove" min="0" max="10" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Wrinkle Reduce</label><input type="range" id="wrinkle" min="0" max="10" value="0" oninput="applyFilters()"></div>
+
+  <h3>Color & Light</h3>
+  <div class="slider-group"><label>Brightness</label><input type="range" id="brightness" min="-50" max="50" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Contrast</label><input type="range" id="contrast" min="-50" max="50" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Saturation</label><input type="range" id="saturation" min="-50" max="50" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Exposure</label><input type="range" id="exposure" min="-50" max="50" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Temperature</label><input type="range" id="temperature" min="-20" max="20" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Blur Background</label><input type="range" id="blur" min="0" max="15" value="0" oninput="applyFilters()"></div>
+  <div class="slider-group"><label>Sharpness</label><input type="range" id="sharpness" min="0" max="10" value="0" oninput="applyFilters()"></div>
+
+  <h3>Magic Tools</h3>
+  <button onclick="magicEnhance()">Magic Enhance</button>
+  <button onclick="magicEraser()">Magic Eraser</button>
+
+  <h3>Manual Brush</h3>
+  <button id="enableBrush">Enable Brush</button>
+  <label>Brush Size</label><input type="range" id="brushSize" min="5" max="50" value="20">
+  <label>Brush Intensity</label><input type="range" id="brushIntensity" min="1" max="10" value="5">
+</div>
+
+<div class="canvas-area">
+  <canvas id="canvas"></canvas>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix"></script>
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let img = new Image();
+let segmentation = null;
+let faceMask = null;
+let imgDataOriginal = null;
+
+let brushEnabled = false;
+let isDrawing = false;
+let lastBrushTime = 0;
+
+// Load image
+document.getElementById("fileInput").addEventListener("change", e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  img.src = URL.createObjectURL(file);
+});
+
+img.onload = async function(){
+  canvas.width = img.width;
+  canvas.height = img.height;
+  ctx.drawImage(img,0,0);
+  imgDataOriginal = ctx.getImageData(0,0,canvas.width,canvas.height);
+  if(!segmentation) segmentation = await bodyPix.load();
+  const person = await segmentation.segmentPerson(canvas);
+  faceMask = person.data; // face-only mask
+  applyFilters();
+}
+
+// Download
+document.getElementById("downloadBtn").addEventListener("click",()=>{
+  const link = document.createElement("a");
+  link.download = "edited-photo.png";
+  link.href = canvas.toDataURL();
+  link.click();
+});
+
+// Manual brush
+document.getElementById("enableBrush").addEventListener("click",()=>{
+  brushEnabled=!brushEnabled;
+  document.getElementById("enableBrush").innerText = brushEnabled?"Brush Enabled":"Enable Brush";
+});
+canvas.addEventListener("mousedown",()=>{if(brushEnabled)isDrawing=true;});
+canvas.addEventListener("mouseup",()=>{isDrawing=false;});
+canvas.addEventListener("mousemove",e=>{if(isDrawing&&brushEnabled) drawBrush(e);});
+
+function drawBrush(e){
+  const now = Date.now();
+  if(now-lastBrushTime<30)return; // throttle
+  lastBrushTime=now;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX-rect.left)*(canvas.width/rect.width);
+  const y = (e.clientY-rect.top)*(canvas.height/rect.height);
+  const size = Number(document.getElementById("brushSize").value);
+  const intensity = Number(document.getElementById("brushIntensity").value);
+  const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const data = imageData.data;
+  const w = canvas.width, h = canvas.height;
+  const xStart = Math.max(0,x-size), xEnd = Math.min(w,x+size);
+  const yStart = Math.max(0,y-size), yEnd = Math.min(h,y+size);
+  for(let j=yStart;j<yEnd;j++){
+    for(let i=xStart;i<xEnd;i++){
+      const idx=(j*w+i)*4;
+      if(faceMask && faceMask[j*w+i]===1){
+        for(let c=0;c<3;c++){
+          data[idx+c]=data[idx+c]*(1-intensity/10)+255*(intensity/10); // brighten skin on brush
+        }
+      }
+    }
+  }
+  ctx.putImageData(imageData,0,0);
+}
+
+// Apply all filters
+function applyFilters(){
+  if(!imgDataOriginal) return;
+  ctx.putImageData(imgDataOriginal,0,0);
+
+  const faceSmooth = Number(document.getElementById("faceSmooth").value);
+  const blemish = Number(document.getElementById("blemish").value);
+  const pimpleIntensity = Number(document.getElementById("pimpleRemove").value);
+  const wrinkle = Number(document.getElementById("wrinkle").value);
+  const brightness = Number(document.getElementById("brightness").value);
+  const contrast = Number(document.getElementById("contrast").value);
+  const saturation = Number(document.getElementById("saturation").value);
+  const exposure = Number(document.getElementById("exposure").value);
+  const temp = Number(document.getElementById("temperature").value);
+  const blur = Number(document.getElementById("blur").value);
+  const sharp = Number(document.getElementById("sharpness").value);
+
+  // Global CSS filter
+  canvas.style.filter = `blur(${blur}px) brightness(${100+brightness+exposure}%) contrast(${100+contrast}%) saturate(${100+saturation}%)`;
+
+  if(faceMask){
+    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+    const data = imageData.data;
+    const w = canvas.width;
+    for(let i=0;i<data.length;i+=4){
+      if(faceMask[i/4]===1){
+        for(let c=0;c<3;c++){
+          data[i+c]=Math.min(255,data[i+c]+faceSmooth+blemish);
+        }
+      }
+    }
+    if(pimpleIntensity>0) removePimples(pimpleIntensity);
+    ctx.putImageData(imageData,0,0);
+  }
+}
+
+// Fast pimple removal
+function removePimples(intensity){
+  const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const data = imageData.data;
+  const w = canvas.width,h=canvas.height;
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      const idx=(y*w+x)*4;
+      if(faceMask && faceMask[y*w+x]===1){
+        for(let c=0;c<3;c++){
+          const avg = (data[idx+c]*4+data[idx+c-4]+data[idx+c+4]+data[idx+c-4*w]+data[idx+c+4*w])/8;
+          data[idx+c]=data[idx+c]*(1-intensity/5)+avg*(intensity/5);
+        }
+      }
+    }
+  }
+  ctx.putImageData(imageData,0,0);
+}
+
+// Magic tools
+function magicEnhance(){
+  document.getElementById("faceSmooth").value=20;
+  document.getElementById("blemish").value=50;
+  document.getElementById("pimpleRemove").value=10;
+  document.getElementById("brightness").value=20;
+  document.getElementById("contrast").value=25;
+  document.getElementById("saturation").value=25;
+  document.getElementById("exposure").value=20;
+  document.getElementById("temperature").value=5;
+  document.getElementById("blur").value=0;
+  document.getElementById("sharpness").value=5;
+  applyFilters();
+}
+
+function magicEraser(){
+  document.getElementById("faceSmooth").value=30;
+  document.getElementById("blemish").value=50;
+  document.getElementById("pimpleRemove").value=10;
+  document.getElementById("wrinkle").value=5;
+  applyFilters();
+}
+</script>
+
+</body>
+</html>
